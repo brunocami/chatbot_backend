@@ -8,8 +8,8 @@ from schedule_functions.message import detectar_mensaje
 app = Flask(__name__)
 CORS(app)
 
-# Variable para realizar el seguimiento del estado de la conversación
-conversation_initialized = False
+
+active_session = {}
 
 @app.route('/login', methods=['GET'])
 def getUsers():
@@ -23,7 +23,6 @@ def createUsers():
 
 @app.route('/webhook/', methods=['POST','GET'])
 def webhook_whatsapp():
-    global conversation_initialized  # Declarar la variable como global
 
     # SI HAY DATOS RECIBIDOS VIA GET
     if request.method == "GET":
@@ -37,39 +36,42 @@ def webhook_whatsapp():
 
     # RECIBIMOS TODOS LOS DATOS ENVIADOS VIA JSON
     data = request.get_json()
-    
-    dataType = data['entry'][0]['changes'][0]['value']['messages'][0]['type']
-    if dataType == "text":
+
+    if data['entry'][0]['changes'][0]['value']['messages'][0]['type'] == "text":
         #EXTRAEMOS EL NUMERO DE TELEFONO Y EL MANSAJE
-        telefonoCliente=data['entry'][0]['changes'][0]['value']['messages'][0]['from']
         #EXTRAEMOS EL TELEFONO DEL CLIENTE
+        telefonoCliente=data['entry'][0]['changes'][0]['value']['messages'][0]['from']
+        #SI HAY UN MENSAJE
         message=data['entry'][0]['changes'][0]['value']['messages'][0]['text']['body']
         #EXTRAEMOS EL ID DE WHATSAPP DEL ARRAY
         idWA=data['entry'][0]['changes'][0]['value']['messages'][0]['id']
         #EXTRAEMOS EL TIEMPO DE WHATSAPP DEL ARRAY
         timestamp=data['entry'][0]['changes'][0]['value']['messages'][0]['timestamp']
-        #SI HAY UN MENSAJE
 
-        # SI LA CONVERSACION NO HABIA SIDO INICIALIZADA
-        if not conversation_initialized:
-            # INICIO AGENTE 
-            sales_agent.seed_agent()  # Se ejecuta solo una vez al inicio
-            conversation_initialized = True
+        if telefonoCliente not in active_session:
+            # Crear una nueva sesión para el número de teléfono
+            active_session[telefonoCliente] = {
+                'conversation_initialized': True # Asigna el valor que deseas almacenar aquí
+            }
+            sales_agent.seed_agent(telefonoCliente)  # Se ejecuta solo una vez al inicio
         
-        # MENSAJE DEL CLIENTE
-        sales_agent.human_step(message)  # Se ejecuta cada vez que llega un mensaje
-        # FUNCION DE LANGCHAIN
-        ai_message = str(sales_agent._call(inputs={}))
-        # ESTADO DE LA CONVERSACION
-        current_conversation_stage = str(sales_agent.determine_conversation_stage())
+            # SI LA CONVERSACION NO HABIA SIDO INICIALIZADA
+            if not active_session[telefonoCliente]['conversation_initialized']:
+                # INICIO AGENTE 
+                sales_agent.seed_agent(telefonoCliente)  # Se ejecuta solo una vez al inicio
 
-        if current_conversation_stage == 'Terminar la conversacion: una vez que el cliente haya decidido acercarse a la tiene o pagar online despidete cordialmente y termina la conversacion.':
-            print(current_conversation_stage)
-            print("fin de la conversacion")
-        # GUARDAR MENSAJE EN DB Y ENVIARLO POR WHAPP
-        save_message_in_db(ai_message,idWA,timestamp,telefonoCliente,message, current_conversation_stage)
+            # MENSAJE DEL CLIENTE
+            sales_agent.human_step(message, telefonoCliente)  # Se ejecuta cada vez que llega un mensaje
+            # FUNCION DE LANGCHAIN
+            ai_message = str(sales_agent.step(telefonoCliente))
+            # ESTADO DE LA CONVERSACION
+            current_conversation_stage = str(sales_agent.determine_conversation_stage(telefonoCliente))
+            
+            # GUARDAR MENSAJE EN DB Y ENVIARLO POR WHAPP
+            save_message_in_db(ai_message,idWA,timestamp,telefonoCliente,message, current_conversation_stage)
 
-        detectar_mensaje(ai_message, telefonoCliente)
+            detectar_mensaje(ai_message, telefonoCliente)
+
     else: 
         messageType=data['entry'][0]['changes'][0]['value']['messages'][0]['type']
         #EXTRAEMOS EL NUMERO DE TELEFONO Y EL MANSAJE

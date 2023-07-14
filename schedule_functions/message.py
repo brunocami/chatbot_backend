@@ -12,7 +12,6 @@ class Mensaje:
 
 
 def detectar_mensaje(texto, telefonoCliente):
-    print(texto)
     if "||" in texto:
         inicio = texto.find("||") + 2
         fin = texto.rfind("||")

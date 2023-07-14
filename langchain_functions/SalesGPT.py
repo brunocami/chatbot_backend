@@ -10,13 +10,16 @@ from langchain.chains.base import Chain
 from langchain.chat_models import ChatOpenAI
 from langchain_functions.SalesCoversationChain import SalesConversationChain
 from langchain_functions.StageAnalyzerChain import StageAnalyzerChain
-    
+
 llm = ChatOpenAI(temperature=0.9)
 
 class SalesGPT(Chain, BaseModel):
     """Controller model for the Sales Agent."""
 
-    conversation_history: List[str] = []
+    # conversation_history: List[str] = []
+
+    conversation_history: Dict[str, List[str]] = {}
+
     current_conversation_stage: str = "1"
     stage_analyzer_chain: StageAnalyzerChain = Field(...)
     sales_conversation_utterance_chain: SalesConversationChain = Field(...)
@@ -52,14 +55,19 @@ class SalesGPT(Chain, BaseModel):
     def output_keys(self) -> List[str]:
         return []
 
-    def seed_agent(self):
+    def seed_agent(self, telefono_cliente: str):
         # Step 1: seed the conversation
         self.current_conversation_stage = self.retrieve_conversation_stage("1")
-        self.conversation_history = []
+        # self.conversation_history = []
 
-    def determine_conversation_stage(self):
+        self.conversation_history[telefono_cliente] = []
+
+    def determine_conversation_stage(self, telefono_cliente: str):
         conversation_stage_id = self.stage_analyzer_chain.run(
-            conversation_history='"\n"'.join(self.conversation_history),
+            # conversation_history='"\n"'.join(self.conversation_history),
+
+            conversation_history='\n'.join(self.conversation_history[telefono_cliente]),
+
             current_conversation_stage=self.current_conversation_stage,
         )
 
@@ -69,16 +77,17 @@ class SalesGPT(Chain, BaseModel):
 
         return self.current_conversation_stage
 
-    def human_step(self, human_input):
+    def human_step(self, human_input, telefono_cliente: str):
         # process human input
         human_input = human_input + " <END_OF_TURN>"
-        self.conversation_history.append(human_input)
+        # self.conversation_history.append(human_input)
+        self.conversation_history[telefono_cliente].append(human_input)
 
-    def step(self):
-        self._call(inputs={})
-        return self.conversation_history
+    def step(self, telefono_cliente: str):
+        ai_message = self._call(inputs={}, telefono_cliente= telefono_cliente)
+        return ai_message
 
-    def _call(self, inputs: Dict[str, Any]) -> None:
+    def _call(self, inputs: Dict[str, Any], telefono_cliente: str) -> None:
         """Run one step of the sales agent."""
 
         # Generate agent's utterance
@@ -91,12 +100,14 @@ class SalesGPT(Chain, BaseModel):
             company_business=self.company_business,
             company_values=self.company_values,
             conversation_purpose=self.conversation_purpose,
-            conversation_history="\n".join(self.conversation_history),
+            # conversation_history="\n".join(self.conversation_history),
+            conversation_history="\n".join(self.conversation_history[telefono_cliente]),
             conversation_stage=self.current_conversation_stage,
         )
 
         # Add agent's response to conversation history
-        self.conversation_history.append(ai_message)
+        # self.conversation_history.append(ai_message)
+        self.conversation_history[telefono_cliente].append(ai_message)
 
         return ai_message.rstrip(" <END_OF_TURN>")
 
@@ -144,3 +155,15 @@ config = dict(
 )
 
 sales_agent = SalesGPT.from_llm(llm, verbose=False, **config)
+
+# # Primera interacción con el cliente1
+# cliente1 = "1234567890"
+# sales_agent.seed_agent(cliente1)
+# sales_agent.human_step("estoy interesado en las membersias anuales", cliente1)
+# respuesta_cliente1 = sales_agent.step( cliente1)
+
+# # Segunda interacción con el cliente2
+# cliente2 = "0987654321"
+# sales_agent.seed_agent(cliente2)
+# sales_agent.human_step("Estoy buscando una salida diaria", cliente2)
+# respuesta_cliente2 = sales_agent.step(cliente2)
