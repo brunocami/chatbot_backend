@@ -1,17 +1,22 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from db_functions.saveMessageDb import save_message_in_db
 from langchain_functions.SalesGPT import sales_agent
 from db_functions.users import postUser, getUser
-from schedule_functions.message import detectar_mensaje
+from whatsapp_functions.createBotMessage import createMessage 
 from whatsapp_functions.manageSessions import delete_active_session
+from schedule_functions.message import detectar_mensaje
+from db_functions.saveMessageDb import save_message_in_db
 import threading
+from time import sleep
+from queue import Queue
+
+mensajes = Queue()
+mensajes_enviados = False 
 
 app = Flask(__name__)
 CORS(app)
 
 active_session = {}
-# mensajes = []
 
 @app.route('/login', methods=['GET'])
 def getUsers():
@@ -26,7 +31,8 @@ def createUsers():
 @app.route('/webhook/', methods=['POST','GET'])
 def webhook_whatsapp():
 
-    # global mensajes
+    global mensajes
+    global mensajes_enviados
 
     # SI HAY DATOS RECIBIDOS VIA GET
     if request.method == "GET":
@@ -42,7 +48,6 @@ def webhook_whatsapp():
     data = request.get_json()
 
     if data['entry'][0]['changes'][0]['value']['messages'][0]['type'] == "text":
-        #EXTRAEMOS EL NUMERO DE TELEFONO Y EL MANSAJE
         #EXTRAEMOS EL TELEFONO DEL CLIENTE
         telefonoCliente=data['entry'][0]['changes'][0]['value']['messages'][0]['from']
         #SI HAY UN MENSAJE
@@ -52,47 +57,32 @@ def webhook_whatsapp():
         #EXTRAEMOS EL TIEMPO DE WHATSAPP DEL ARRAY
         timestamp=data['entry'][0]['changes'][0]['value']['messages'][0]['timestamp']
 
-        # ESPERO UN MINUTO Y CONCATENO TODOS LOS MENSAJES QUE LLEGUEN EN ESE PERIODO EN UNA VARIABLE
-        # sleep(10)
-
-        # while True:
-        #     mensajes.append(message)  # Agregar el mensaje a la lista
-        #     sleep(1)  # Esperar un segundo entre cada mensaje recibido
-
-        #     # Verificar si ya ha pasado un minuto
-        #     tiempo_actual = time()
-        #     tiempo_transcurrido = tiempo_actual - float(timestamp)  # Convertir timestamp a número
-
-        #     if tiempo_transcurrido >= 10:
-        #         message_chain = "\n".join(mensajes)  # Unir los mensajes con saltos de línea
-        #         print(message_chain)
-        #         break
-
         if telefonoCliente not in active_session:
             # Crear una nueva sesión para el número de teléfono
             # Iniciar el temporizador en un hilo separado
             threading.Thread(target=delete_active_session, args=(active_session,telefonoCliente)).start()
             sales_agent.seed_agent(telefonoCliente)  # Se ejecuta solo una vez al inicio
 
-        
-        # SI LA CONVERSACION NO HABIA SIDO INICIALIZADA
-        if not active_session[telefonoCliente]['conversation_initialized']:
-            # INICIO AGENTE 
-            sales_agent.seed_agent(telefonoCliente)  # Se ejecuta solo una vez al inicio
-
-        # MENSAJE DEL CLIENTE
-        sales_agent.human_step(message, telefonoCliente)  # Se ejecuta cada vez que llega un mensaje
-        # FUNCION DE LANGCHAIN
-        ai_message = str(sales_agent.step(telefonoCliente))
-        # ESTADO DE LA CONVERSACION
-        current_conversation_stage = str(sales_agent.determine_conversation_stage(telefonoCliente))
-
-        print(active_session)
-        
-        # GUARDAR MENSAJE EN DB Y ENVIARLO POR WHAPP
-        save_message_in_db(ai_message,idWA,timestamp,telefonoCliente,message, current_conversation_stage)
-
-        detectar_mensaje(ai_message, telefonoCliente)
+        # Agregar el mensaje a la cola
+        mensajes.put(message)
+        # ESPERO UN MINUTO Y CONCATENO TODOS LOS MENSAJES QUE LLEGUEN EN ESE PERIODO EN UNA VARIABLE
+        sleep(10)
+        # Si los mensajes no se han enviado y hay mensajes en la cola, los enviamos
+        if not mensajes_enviados and not mensajes.empty():
+            message_chain = ""
+            while not mensajes.empty():
+                message_chain += mensajes.get() + " "
+            # MENSAJE DEL CLIENTE
+            sales_agent.human_step(message_chain, telefonoCliente)  # Se ejecuta cada vez que llega un mensaje
+            # FUNCION DE LANGCHAIN
+            ai_message = str(sales_agent.step(telefonoCliente))
+            # ESTADO DE LA CONVERSACION
+            current_conversation_stage = str(sales_agent.determine_conversation_stage(telefonoCliente))
+            # GUARDAR MENSAJE EN DB Y ENVIARLO POR WHAPP
+            save_message_in_db(ai_message, idWA, timestamp, telefonoCliente, message_chain, current_conversation_stage)
+           
+            detectar_mensaje(ai_message, telefonoCliente)
+            mensajes_enviados = True
 
     else: 
         messageType=data['entry'][0]['changes'][0]['value']['messages'][0]['type']
@@ -104,7 +94,6 @@ def webhook_whatsapp():
         idWA=data['entry'][0]['changes'][0]['value']['messages'][0]['id']
         #EXTRAEMOS EL TIEMPO DE WHATSAPP DEL ARRAY
         timestamp=data['entry'][0]['changes'][0]['value']['messages'][0]['timestamp']
-        return message
     
     return data
 

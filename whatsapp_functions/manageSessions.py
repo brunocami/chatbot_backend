@@ -1,6 +1,5 @@
 from time import sleep
 
-
 def delete_active_session(active_session, telefonoCliente):
 
     if telefonoCliente not in active_session:
