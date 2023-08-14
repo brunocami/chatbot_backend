@@ -1,11 +1,9 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from langchain_functions.SalesGPT import sales_agent
 from db_functions.users import postUser, getUser
-from whatsapp_functions.createBotMessage import createMessage 
 from whatsapp_functions.manageSessions import delete_active_session
-from schedule_functions.message import detectar_mensaje
 from db_functions.saveMessageDb import save_message_in_db
+from langchain_functions.manage_ai_message import generate_response
 import threading
 from time import sleep
 from queue import Queue
@@ -61,31 +59,24 @@ def webhook_whatsapp():
             # Crear una nueva sesión para el número de teléfono
             # Iniciar el temporizador en un hilo separado
             threading.Thread(target=delete_active_session, args=(active_session,telefonoCliente)).start()
-            sales_agent.seed_agent(telefonoCliente)  # Se ejecuta solo una vez al inicio
 
         # Agregar el mensaje a la cola
         mensajes.put(message)
         # ESPERO UN MINUTO Y CONCATENO TODOS LOS MENSAJES QUE LLEGUEN EN ESE PERIODO EN UNA VARIABLE
-        sleep(10)
+        sleep(5)
         # Si los mensajes no se han enviado y hay mensajes en la cola, los enviamos
         if not mensajes_enviados and not mensajes.empty():
             message_chain = ""
             while not mensajes.empty():
                 message_chain += mensajes.get() + " "
-            # MENSAJE DEL CLIENTE
-            sales_agent.human_step(message_chain, telefonoCliente)  # Se ejecuta cada vez que llega un mensaje
             # FUNCION DE LANGCHAIN
-            ai_message = str(sales_agent.step(telefonoCliente))
-            # ESTADO DE LA CONVERSACION
-            current_conversation_stage = str(sales_agent.determine_conversation_stage(telefonoCliente))
-            # GUARDAR MENSAJE EN DB Y ENVIARLO POR WHAPP
-            save_message_in_db(ai_message, idWA, timestamp, telefonoCliente, message_chain, current_conversation_stage)
-           
-            detectar_mensaje(ai_message, telefonoCliente)
-            mensajes_enviados = True
+            ai_message = generate_response(telefonoCliente, message_chain)
+            # GURADAR EL MENSAJE EN LA BASE DE DATOS Y ENVIARLO POR WAPP
+            save_message_in_db(ai_message, idWA, timestamp, telefonoCliente, message_chain)
+            
+            mensajes_enviados = False
 
     else: 
-        messageType=data['entry'][0]['changes'][0]['value']['messages'][0]['type']
         #EXTRAEMOS EL NUMERO DE TELEFONO Y EL MANSAJE
         telefonoCliente=data['entry'][0]['changes'][0]['value']['messages'][0]['from']
         #EXTRAEMOS EL TELEFONO DEL CLIENTE

@@ -6,7 +6,7 @@ from whatsapp_functions.mesage_date import is_message_old
 from whatsapp_functions.sendMessage import enviar
 
 #SI HAY UN MENSAJE
-def save_message_in_db(mensaje,idWA,timestamp,telefonoCliente,message, conversationStage):
+def save_message_in_db(mensaje,idWA,timestamp,telefonoCliente,message):
 
     is_old = is_message_old(int(timestamp))
 
@@ -21,16 +21,16 @@ def save_message_in_db(mensaje,idWA,timestamp,telefonoCliente,message, conversat
                 database=Config.DATABASE.DATABASE
             )
             cursor = db.cursor()
-            cursor.execute("SELECT count(id) AS cantidad FROM registro_nuevos WHERE id_wa='" + idWA + "';")
+            cursor.execute("SELECT count(id) AS cantidad FROM historial_de_conversacion WHERE id_wa='" + idWA + "';")
 
             cantidad,=cursor.fetchone()
             cantidad=str(cantidad)
             cantidad=int(cantidad)
 
             if cantidad==0 :
-                sql = ("INSERT INTO registro_nuevos"+ 
-                "(prompt,completion,id_wa      ,timestamp_wa   ,telefono_wa, chat_history) VALUES "+
-                "('"+message+"'   ,'"+mensaje+"','"+idWA+"' ,'"+timestamp+"','"+telefonoCliente+"','"+conversationStage+"');")
+                sql = ("INSERT INTO historial_de_conversacion"+ 
+                "(user_message,ai_message,id_wa      ,timestamp_wa   ,telefono_wa) VALUES "+
+                "('"+message+"'   ,'"+mensaje+"','"+idWA+"' ,'"+timestamp+"','"+telefonoCliente+"');")
                 cursor.execute(sql)
                 db.commit()
 
